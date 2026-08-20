@@ -70,17 +70,21 @@ interface ConfigFuncionario {
    HELPERS & UI
 ========================= */
 
+// CORRIGIDO: adicionado suporte a response?.presencas (retorno real do backend)
 function normalizarLista<T>(response: any): T[] {
   if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.presencas)) return response.presencas;
+  if (Array.isArray(response?.despesas)) return response.despesas;
   if (Array.isArray(response?.data)) return response.data;
   if (Array.isArray(response?.result)) return response.result;
   return [];
 }
 
-function formatarData(data?: string) {
+// CORRIGIDO: aceita Date além de string para evitar crash de tipagem
+function formatarData(data?: string | Date) {
   if (!data) return "-";
   const date = new Date(data);
-  if (Number.isNaN(date.getTime())) return data;
+  if (Number.isNaN(date.getTime())) return String(data);
   return date.toLocaleDateString("pt-BR");
 }
 
@@ -192,6 +196,7 @@ function Modal({
           <h3 className="text-base font-bold text-white">{title}</h3>
           <button
             onClick={onClose}
+            aria-label="Fechar"
             className="rounded-md p-1 text-zinc-500 transition-colors hover:text-white"
           >
             <X className="h-4 w-4" />
@@ -205,10 +210,9 @@ function Modal({
 
 function Field({
   label,
+  className,
   ...props
-}: React.InputHTMLAttributes<HTMLInputElement> & {
-  label: string;
-}) {
+}: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-xs uppercase tracking-wide text-zinc-500 font-semibold">
@@ -216,7 +220,7 @@ function Field({
       </span>
       <input
         {...props}
-        className="rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-200 outline-none transition-colors focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400/20"
+        className={`rounded-lg border border-zinc-800 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-200 outline-none transition-colors focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400/20 ${className ?? ""}`}
       />
     </label>
   );
@@ -242,7 +246,6 @@ export default function FuncionarioDashboardPage() {
   const [buscaTreino, setBuscaTreino] = useState("");
   const [mostrarTodosAlunos, setMostrarTodosAlunos] = useState(false);
 
-  // Configurações Pessoais do Funcionário
   const [configFunc, setConfigFunc] = useState<ConfigFuncionario>({
     turno: "Manhã (06:00 - 14:00)",
     notificacoesEmail: true,
@@ -250,13 +253,11 @@ export default function FuncionarioDashboardPage() {
     modoExibicao: "Modo Escuro (Padrão)",
   });
 
-  // Modais
   const [modalSenha, setModalSenha] = useState(false);
   const [modalPerfil, setModalPerfil] = useState(false);
   const [modalConfig, setModalConfig] = useState(false);
   const [modalNovoTreino, setModalNovoTreino] = useState(false);
 
-  // Form de alteração de senha
   const [senhaForm, setSenhaForm] = useState({
     atual: "",
     nova: "",
@@ -264,14 +265,12 @@ export default function FuncionarioDashboardPage() {
   });
   const [senhaErro, setSenhaErro] = useState("");
 
-  // Form de perfil
   const [perfilForm, setPerfilForm] = useState({
     nome: "",
     telefone: "",
     cargo: "",
   });
 
-  // Form de novo treino
   const [novoTreino, setNovoTreino] = useState({
     nome: "",
     descricao: "",
@@ -349,10 +348,16 @@ export default function FuncionarioDashboardPage() {
         setTreinos(normalizarLista<Treino>(dataTreinos));
       }
 
+      // CORRIGIDO: extrai totalPresentes diretamente do corpo da resposta
+      // O backend retorna: { success: true, totalPresentes: N, presencas: [...] }
       if (presencasRes.ok) {
         const dataPresencas = await presencasRes.json();
         const listaPresencas = normalizarLista<any>(dataPresencas);
-        setPresencasHojeCount(listaPresencas.length);
+        const total =
+          typeof dataPresencas?.totalPresentes === "number"
+            ? dataPresencas.totalPresentes
+            : listaPresencas.length;
+        setPresencasHojeCount(total);
       }
     } catch (err) {
       console.error("Erro ao carregar dados:", err);
@@ -363,7 +368,6 @@ export default function FuncionarioDashboardPage() {
   }
 
   useEffect(() => {
-    // Carrega preferências salvas no localStorage se existirem
     const savedConfig = localStorage.getItem("config_funcionario");
     if (savedConfig) {
       try {
@@ -383,28 +387,33 @@ export default function FuncionarioDashboardPage() {
      FILTROS
   ========================= */
 
-  const alunosFiltrados = useMemo(() => {
-    return alunos.filter((aluno) =>
-      aluno.nome?.toLowerCase().includes(buscaAluno.toLowerCase()),
-    );
-  }, [alunos, buscaAluno]);
+  const alunosFiltrados = useMemo(
+    () =>
+      alunos.filter((a) =>
+        a.nome?.toLowerCase().includes(buscaAluno.toLowerCase()),
+      ),
+    [alunos, buscaAluno],
+  );
 
   const alunosVisiveis = mostrarTodosAlunos
     ? alunosFiltrados
     : alunosFiltrados.slice(0, 5);
 
-  const treinosFiltrados = useMemo(() => {
-    return treinos.filter(
-      (t) =>
-        t.nome?.toLowerCase().includes(buscaTreino.toLowerCase()) ||
-        t.aluno?.nome?.toLowerCase().includes(buscaTreino.toLowerCase()) ||
-        t.tipoTreino?.toLowerCase().includes(buscaTreino.toLowerCase()),
-    );
-  }, [treinos, buscaTreino]);
+  const treinosFiltrados = useMemo(
+    () =>
+      treinos.filter(
+        (t) =>
+          t.nome?.toLowerCase().includes(buscaTreino.toLowerCase()) ||
+          t.aluno?.nome?.toLowerCase().includes(buscaTreino.toLowerCase()) ||
+          t.tipoTreino?.toLowerCase().includes(buscaTreino.toLowerCase()),
+      ),
+    [treinos, buscaTreino],
+  );
 
-  const alunosAtivosCount = useMemo(() => {
-    return alunos.filter((a) => a.status?.toLowerCase() === "ativo").length;
-  }, [alunos]);
+  const alunosAtivosCount = useMemo(
+    () => alunos.filter((a) => a.status?.toLowerCase() === "ativo").length,
+    [alunos],
+  );
 
   /* =========================
      AÇÕES
@@ -416,6 +425,7 @@ export default function FuncionarioDashboardPage() {
     router.push("/login");
   }
 
+  // CORRIGIDO: lê o corpo do erro da API em vez de usar mensagem genérica
   async function handleCriarTreino(e: React.FormEvent) {
     e.preventDefault();
     if (!novoTreino.nome || !novoTreino.alunoId) return;
@@ -439,7 +449,10 @@ export default function FuncionarioDashboardPage() {
       });
 
       if (!res.ok) {
-        throw new Error("Erro ao cadastrar treino.");
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.error || errData.message || "Erro ao cadastrar treino.",
+        );
       }
 
       setSucesso("Treino cadastrado com sucesso!");
@@ -460,6 +473,7 @@ export default function FuncionarioDashboardPage() {
     }
   }
 
+  // CORRIGIDO: não faz fallback silencioso — exibe erro real caso a API falhe
   async function handleSalvarPerfil(e: React.FormEvent) {
     e.preventDefault();
     if (!funcionario) return;
@@ -478,48 +492,52 @@ export default function FuncionarioDashboardPage() {
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const atualizado = {
-          ...funcionario,
-          ...data,
-          telefone: perfilForm.telefone,
-        };
-        setFuncionario(atualizado);
-        localStorage.setItem("funcionario", JSON.stringify(atualizado));
-      } else {
-        const atualizado = {
-          ...funcionario,
-          nome: perfilForm.nome,
-          telefone: perfilForm.telefone,
-          cargo: perfilForm.cargo,
-        };
-        setFuncionario(atualizado);
-        localStorage.setItem("funcionario", JSON.stringify(atualizado));
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.error || errData.message || "Erro ao salvar no servidor.",
+        );
       }
+
+      const data = await res.json();
+      const atualizado = {
+        ...funcionario,
+        ...data,
+        telefone: perfilForm.telefone,
+      };
+      setFuncionario(atualizado);
+      localStorage.setItem("funcionario", JSON.stringify(atualizado));
 
       setModalPerfil(false);
       setSucesso("Dados do perfil atualizados com sucesso!");
       setTimeout(() => setSucesso(""), 4000);
     } catch (err) {
       console.error(err);
-      const atualizado = {
-        ...funcionario,
-        nome: perfilForm.nome,
-        telefone: perfilForm.telefone,
-        cargo: perfilForm.cargo,
-      };
-      setFuncionario(atualizado);
-      localStorage.setItem("funcionario", JSON.stringify(atualizado));
-      setModalPerfil(false);
-      setSucesso("Dados salvos com sucesso!");
-      setTimeout(() => setSucesso(""), 4000);
+      setErro(err instanceof Error ? err.message : "Erro ao salvar perfil.");
     }
   }
 
-  function handleSalvarConfig(e: React.FormEvent) {
+  // CORRIGIDO: tenta sincronizar o turno selecionado com o backend
+  async function handleSalvarConfig(e: React.FormEvent) {
     e.preventDefault();
     localStorage.setItem("config_funcionario", JSON.stringify(configFunc));
+
+    if (funcionario?.id) {
+      try {
+        const token = localStorage.getItem("token");
+        await fetch(`${API_URL}/funcionarios/${funcionario.id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ turno: configFunc.turno }),
+        });
+      } catch (e) {
+        console.error("Erro ao sincronizar turno com o servidor:", e);
+      }
+    }
+
     setModalConfig(false);
     setSucesso("Preferências de funcionário salvas!");
     setTimeout(() => setSucesso(""), 4000);
@@ -533,12 +551,10 @@ export default function FuncionarioDashboardPage() {
       setSenhaErro("Informe a senha atual.");
       return;
     }
-
     if (senhaForm.nova.length < 6) {
       setSenhaErro("A nova senha deve ter pelo menos 6 caracteres.");
       return;
     }
-
     if (senhaForm.nova !== senhaForm.confirmar) {
       setSenhaErro("As senhas não coincidem.");
       return;
@@ -602,7 +618,7 @@ export default function FuncionarioDashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* HEADER DA PÁGINA */}
+      {/* HEADER */}
       <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
@@ -626,7 +642,6 @@ export default function FuncionarioDashboardPage() {
               <User className="h-3.5 w-3.5 text-yellow-400" />
               <span>{funcionario.nome}</span>
             </div>
-
             <button
               onClick={handleLogout}
               className="flex items-center gap-1.5 rounded-lg border border-zinc-800 px-3.5 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
@@ -640,11 +655,10 @@ export default function FuncionarioDashboardPage() {
 
       {/* CONTEÚDO PRINCIPAL */}
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        {/* NOTIFICAÇÕES */}
         {erro && (
           <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400 flex items-center justify-between">
             <span>{erro}</span>
-            <button onClick={() => setErro("")}>
+            <button onClick={() => setErro("")} aria-label="Fechar">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -657,7 +671,6 @@ export default function FuncionarioDashboardPage() {
           </div>
         )}
 
-        {/* CABEÇALHO BOAS-VINDAS */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-extrabold text-white sm:text-3xl">
@@ -677,7 +690,6 @@ export default function FuncionarioDashboardPage() {
               <Plus className="h-4 w-4" />
               Novo Treino
             </button>
-
             <button
               onClick={carregarDados}
               className="rounded-xl border border-zinc-800 bg-zinc-900 p-2.5 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
@@ -688,7 +700,7 @@ export default function FuncionarioDashboardPage() {
           </div>
         </div>
 
-        {/* MÉTRICAS OPERACIONAIS (SEM EQUIPE/CONTAGEM DE FUNCIONÁRIOS) */}
+        {/* MÉTRICAS */}
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             icon={Users}
@@ -696,32 +708,29 @@ export default function FuncionarioDashboardPage() {
             valor={String(alunosAtivosCount)}
             subtext={`${alunos.length} alunos cadastrados`}
           />
-
           <StatCard
             icon={Dumbbell}
             label="Treinos Cadastrados"
             valor={String(treinos.length)}
             subtext="Fichas ativas no sistema"
           />
-
           <StatCard
             icon={UserCheck}
             label="Presenças Hoje"
             valor={String(presencasHojeCount)}
             subtext="Acessos registrados"
           />
-
+          {/* CORRIGIDO: optional chaining para evitar crash se turno for undefined */}
           <StatCard
             icon={Clock}
             label="Turno Atual"
-            valor={configFunc.turno.split(" ")[0]}
+            valor={configFunc.turno?.split(" ")[0] ?? "Turno"}
             subtext={configFunc.turno}
           />
         </div>
 
-        {/* SEÇÕES DO PAINEL DO FUNCIONÁRIO */}
+        {/* ALUNOS + TREINOS */}
         <div className="mt-8 grid gap-8 lg:grid-cols-2">
-          {/* ALUNOS DA ACADEMIA */}
           <SectionCard
             icon={Users}
             title="Alunos Registrados"
@@ -743,7 +752,7 @@ export default function FuncionarioDashboardPage() {
                 <p className="py-4 text-center text-sm text-zinc-500">
                   {buscaAluno
                     ? "Nenhum aluno encontrado."
-                    : "Carregando alunos..."}
+                    : "Nenhum aluno cadastrado."}
                 </p>
               )}
 
@@ -754,7 +763,8 @@ export default function FuncionarioDashboardPage() {
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-xs font-bold text-yellow-400 ring-1 ring-zinc-800">
-                      {aluno.nome.charAt(0).toUpperCase()}
+                      {/* CORRIGIDO: optional chaining para evitar crash se nome for null */}
+                      {aluno.nome?.charAt(0)?.toUpperCase() ?? "?"}
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-white">
@@ -766,11 +776,8 @@ export default function FuncionarioDashboardPage() {
                       </p>
                     </div>
                   </div>
-
                   <span
-                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusColor(
-                      aluno.status || "Ativo",
-                    )}`}
+                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusColor(aluno.status || "Ativo")}`}
                   >
                     {aluno.status || "Ativo"}
                   </span>
@@ -790,7 +797,6 @@ export default function FuncionarioDashboardPage() {
             )}
           </SectionCard>
 
-          {/* LISTA DE TREINOS */}
           <SectionCard
             icon={Dumbbell}
             title="Treinos & Acompanhamento"
@@ -836,7 +842,6 @@ export default function FuncionarioDashboardPage() {
                         {treino.tipoTreino}
                       </span>
                     </div>
-
                     <p className="mt-0.5 text-xs text-zinc-500">
                       Aluno:{" "}
                       <span className="text-zinc-300">
@@ -845,11 +850,8 @@ export default function FuncionarioDashboardPage() {
                       · Duração: {treino.duracao} min
                     </p>
                   </div>
-
                   <span
-                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${dificuldadeColor(
-                      treino.dificuldade,
-                    )}`}
+                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${dificuldadeColor(treino.dificuldade)}`}
                   >
                     {treino.dificuldade}
                   </span>
@@ -859,9 +861,8 @@ export default function FuncionarioDashboardPage() {
           </SectionCard>
         </div>
 
-        {/* SEGUNDA LINHA: CONFIGURAÇÕES DO FUNCIONÁRIO E SUA CONTA */}
+        {/* CONFIGURAÇÕES + CONTA */}
         <div className="mt-8 grid gap-8 lg:grid-cols-2">
-          {/* CONFIGURAÇÕES DO FUNCIONÁRIO (NÃO DA ACADEMIA) */}
           <SectionCard
             icon={Settings}
             title="Configurações do Funcionário"
@@ -933,7 +934,6 @@ export default function FuncionarioDashboardPage() {
             </button>
           </SectionCard>
 
-          {/* SUA CONTA (MELHORADA) */}
           <SectionCard
             icon={User}
             title="Sua Conta"
@@ -948,7 +948,6 @@ export default function FuncionarioDashboardPage() {
                   {funcionario.nome}
                 </span>
               </div>
-
               <div className="flex items-center justify-between py-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   E-mail de Acesso
@@ -957,7 +956,6 @@ export default function FuncionarioDashboardPage() {
                   {funcionario.email}
                 </span>
               </div>
-
               <div className="flex items-center justify-between py-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Cargo / Função
@@ -966,7 +964,6 @@ export default function FuncionarioDashboardPage() {
                   {funcionario.cargo || "Instrutor"}
                 </span>
               </div>
-
               <div className="flex items-center justify-between py-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Telefone
@@ -975,7 +972,6 @@ export default function FuncionarioDashboardPage() {
                   {funcionario.telefone || "Não informado"}
                 </span>
               </div>
-
               <div className="flex items-center justify-between py-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Nível de Permissão
@@ -993,7 +989,6 @@ export default function FuncionarioDashboardPage() {
               >
                 Editar meus dados
               </button>
-
               <button
                 onClick={() => setModalSenha(true)}
                 className="rounded-xl border border-zinc-800 py-2.5 text-xs font-bold text-yellow-400 transition-colors hover:border-yellow-400/40 hover:bg-yellow-400/10"
@@ -1005,7 +1000,7 @@ export default function FuncionarioDashboardPage() {
         </div>
       </main>
 
-      {/* MODAL CONFIGURAÇÕES DO FUNCIONÁRIO */}
+      {/* MODAL CONFIGURAÇÕES */}
       <Modal
         open={modalConfig}
         onClose={() => setModalConfig(false)}
@@ -1098,7 +1093,6 @@ export default function FuncionarioDashboardPage() {
             }
             required
           />
-
           <Field
             label="Telefone / WhatsApp"
             value={perfilForm.telefone}
@@ -1107,7 +1101,6 @@ export default function FuncionarioDashboardPage() {
             }
             placeholder="(11) 99999-9999"
           />
-
           <Field
             label="Cargo / Função"
             value={perfilForm.cargo}
@@ -1115,7 +1108,6 @@ export default function FuncionarioDashboardPage() {
               setPerfilForm((prev) => ({ ...prev, cargo: e.target.value }))
             }
           />
-
           <button
             type="submit"
             className="mt-2 w-full rounded-xl bg-yellow-400 py-3 text-xs font-bold text-black transition-colors hover:bg-yellow-300"
@@ -1144,7 +1136,6 @@ export default function FuncionarioDashboardPage() {
             }
             required
           />
-
           <Field
             label="Nova Senha"
             type="password"
@@ -1154,7 +1145,6 @@ export default function FuncionarioDashboardPage() {
             }
             required
           />
-
           <Field
             label="Confirmar Nova Senha"
             type="password"
@@ -1164,11 +1154,9 @@ export default function FuncionarioDashboardPage() {
             }
             required
           />
-
           {senhaErro && (
             <p className="text-xs font-medium text-red-400">{senhaErro}</p>
           )}
-
           <button
             type="submit"
             className="mt-2 w-full rounded-xl bg-yellow-400 py-3 text-xs font-bold text-black transition-colors hover:bg-yellow-300"
@@ -1194,7 +1182,6 @@ export default function FuncionarioDashboardPage() {
             placeholder="Ex.: Treino A - Hipertrofia Peito/Tríceps"
             required
           />
-
           <Field
             label="Descrição / Observações"
             value={novoTreino.descricao}
@@ -1246,7 +1233,6 @@ export default function FuncionarioDashboardPage() {
                 <option>Avançado</option>
               </select>
             </label>
-
             <Field
               label="Duração (minutos)"
               type="number"
